@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the article and this archive."
+title: "xeno-biomodels: orthogonality between organisms measured on SBML models in a simulated chemostat"
+version: 0.1.0
+date-released: 2026-11-24
+license: Apache-2.0
+type: software
+authors:
+  - family-names: Saito
+    given-names: Ryotaro
+    affiliation: Independent Researcher, Yokohama, Kanagawa, Japan
+repository-code: "https://github.com/RS0136/xeno-viva-biomodels"
+# doi: 10.5281/zenodo.CODE   # fill in after the first Zenodo release
+keywords: [orthogonality, SBML, BioModels, chemostat, Vivarium, process-bigraph, interference]
