@@ -1,0 +1,203 @@
+# The experiment: which SBML models are the receivers, the world that each lives in, the sender and its designs, the
+# activities that are stepped at time zero, and how orthogonality is read.
+#
+# Units: time in minutes, concentrations in mM, as in the three SBML models. A density is a volume of cells per
+# volume of medium.
+#
+# What is marked ASSUMED is a choice of this world. It is not in any SBML model and has no source: it is a
+# plausible value for a microbial chemostat, and the conclusions drawn from the runs say where they depend on it.
+
+# ---- which models of the viva-biomodels corpus count as accurate (xeno_biomodels.corpus) ---------------------------
+selection:
+  engines: 5              # all of amici, copasi, pysces, simbio, tellurium ran the model
+  variable_nrmse: 1.0e-5  # no variable of any pair of engines is off by more than this share of its size
+  moving_variables: 5     # on at least this many variables that move
+
+# ---- the receivers: SBML models of the plateau that take a nutrient from a medium and sense its level --------------
+# medium     boundary species of the SBML model that this world lets vary: they become concentrations in the vessel
+# nutrient   the one among them whose uptake sets the growth of the organism (a constant yield)
+# biovolume  density of the organism when it is alone and at rest. ASSUMED.
+# atp        the species of the model that is ATP: what the model makes of it is the common quantity `atp_made`
+# carriers   species of the model that carry energy or electrons, and
+# proteins   species that are states of a protein: neither counts among the metabolites of the common `pool`
+receivers:
+  BIOMD0000000172:
+    organism: Saccharomyces cerevisiae
+    what: glycolysis
+    medium: [GLCo]
+    nutrient: GLCo
+    biovolume: 1.0e-3
+    atp: ATP
+    carriers: [ATP, ADP, AMP, NAD, NADH]
+    proteins: []
+  BIOMD0000000217:
+    organism: Escherichia coli
+    what: ammonium assimilation
+    medium: [NH4]
+    nutrient: NH4
+    biovolume: 1.0e-4
+    atp: ATP
+    carriers: [ATP, ADP]
+    # PII and its three uridylylated forms, and glutamine synthetase free and adenylylated. The species that the
+    # file calls AMP is the adenylylated synthetase, not the nucleotide: GS + AMP is a conserved total of the model.
+    proteins: [PII, PIIUMP, PIIUMP2, PIIUMP3, GS, AMP]
+  BIOMD0000000017:
+    organism: Lactococcus lactis
+    what: pyruvate metabolism
+    medium: [halfglucose]
+    nutrient: halfglucose
+    biovolume: 1.0e-3
+    atp: ATP
+    carriers: [ATP, ADP, NAD, NADH]
+    proteins: []
+
+# ---- what an organism protects (xeno_biomodels.layers) --------------------------------------------------------------
+# Quantities of two kinds, layer by layer:
+#   common     the same quantity for every organism, one at each layer, so that organisms can be set side by side
+#   specific   what is characteristic of one organism: the pool and the step by which its metabolism is known
+# The layers are the levels of a cell, as far as an SBML model of metabolism has them: medium, particle, molecule,
+# complex, individual, population. Such a model has nothing at the levels of the atom, the supramolecule (a genome),
+# the condensate or the organelle, and nothing can be read there.
+# In a pattern, {name} is the organism, {food} what it lives on in the medium, {uptake} the column of its uptake
+# and {product} what a xeno excretes. The measure is read for all of it together and, with the same tolerances, for
+# every layer, for each kind, and for each kind at each layer.
+protect:
+  common:
+    medium: "medium.{food}"            # supply: the level of what it lives on
+    particle: "{name}.atp_made"        # energy conversion: ATP made per cell volume and time (derived, see layers.py)
+    molecule: "{name}.pool"            # its metabolites: the sum of their pools (derived)
+    complex: "{uptake}"                # its enzymes at work: what it takes up per cell volume and time
+    individual: "{name}.growth_rate"   # performance: its growth rate. It follows the uptake by the growth law of
+                                       # the world; the two differ in what they tolerate
+    population: "{name}.density"       # persistence: its density
+  specific:
+    BIOMD0000000172:  # yeast ferments: the way from pyruvate to ethanol
+      molecule: "{name}.species.AcAld"   # acetaldehyde, the intermediate of that way
+      complex: "{name}.rates.PDC"        # pyruvate decarboxylase, the step into it
+    BIOMD0000000217:  # E. coli assimilates ammonium, and regulates how
+      molecule: "{name}.species.GLN"     # glutamine: the first product, and the signal that the model senses
+      # glutamine synthetase: its rate, and its adenylylated form (the species that the file calls AMP)
+      complex: ["{name}.rates.vgs", "{name}.species.AMP"]
+    BIOMD0000000017:  # L. lactis branches at pyruvate
+      molecule: "{name}.species.pyruvate"
+      complex: "{name}.rates.R2"         # lactate dehydrogenase: the branch to lactate
+    xeno:
+      medium: "medium.{product}"         # what it makes
+  xeno_layers: [medium, complex, individual, population]  # an organism of laws has no carriers and no pools
+  tolerance: "rel:0.1"                     # a tenth of its value at rest, for every protected quantity,
+  from_function: ["{name}.growth_rate"]    # but these: their tolerance follows from the function (fn)
+
+# ---- the supply, the same for every run of a world -----------------------------------------------------------------
+supply:
+  dilution: 0.0016666666666666668  # per minute: 0.1 per hour. ASSUMED.
+# The feed concentration of each medium species of a receiver is not chosen: it is the one that holds the vessel at
+# the value that the SBML file gives the species, when the receiver is alone at its steady state.
+
+viable: 1.0e-6  # density below which a type does not count as established. ASSUMED.
+
+# ---- the sender: an organism of three laws (xeno_biomodels.organisms.LawOrganism). Every value ASSUMED. -------------
+sender:
+  substrate: X          # a species of the medium that no SBML model above has
+  product: W            # likewise
+  feed: 20.0            # mM of X in the feed
+  vmax: 20.0            # mM per minute per cell volume, at activity 1
+  km: 1.0               # mM
+  growth_yield: 2.5e-4  # per mM taken per cell volume
+  maintenance: 2.0e-4   # per minute
+  product_yield: 1.0    # W excreted per X taken
+
+# What the transporter of the sender takes besides X: its specificity for the nutrient of the receiver, relative to X.
+# At zero the sender shares no species with the receiver. The others are controls: the same organism, with a
+# transporter that is not perfectly specific.
+designs:
+  xeno: 0.0
+  leak-1e-3: 1.0e-3
+  leak-1e-2: 1.0e-2
+  leak-1e-1: 1.0e-1
+  leak-3e-1: 3.0e-1
+
+# ---- the activities of the sender: its knob u (the capacity of its transporter) stepped at time zero ---------------
+activities:
+  baseline: 1.0
+  steps: [0.25, 0.5, 2.0, 4.0, 8.0]
+
+time:
+  interval: 0.25          # coupling interval of the composite
+  store_every: 40         # ticks between stored times: one every 10 minutes
+  horizon: 6000.0         # ten residence times after the step
+  rest_tolerance: 1.0e-10 # largest relative change over one residence time that counts as rest
+  rest_residence_times: 80
+
+# ---- how orthogonality is read (xeno_biomodels.orthogonality.measure) ----------------------------------------------
+# {name} is the organism that is read: the receiver for `function` and `density`, the sender for `sender_function`.
+measure:
+  function: "{name}.growth_rate"   # Q of a receiver: it grows
+  qmin: "rel:0.5"                  # at half its rate at the start, or more
+  mode: pointwise
+  allocation: dependent
+  density: "{name}.density"
+  sender_function: "{name}.work"   # Q of a xeno as a sender: it converts its substrate. An SBML organism has no
+                                   # knob in these worlds and is only taken away
+  sender_qmin: "rel:0.5"
+  sender_mode: terminal            # judged at the end: a dip while it adjusts to its own step is not a stop
+  sigma: 1.0
+  stage_tol: 1.0e-6
+  bits_tol: 1.0e-3
+
+# ---- several pairs in one vessel (xeno_biomodels.community) --------------------------------------------------------
+# A pair is a receiver above and its xeno. Each pair is first brought to rest in a vessel of its own, as in the
+# worlds above (design xeno). The vessels are then poured together in equal volumes: every density and every
+# concentration becomes the mean over the vessels, the feed the mean of the feeds, and the dilution rate stays.
+# Nothing is chosen for the community beyond what the pairs already had.
+community:
+  names:  # the organisms of each pair: the SBML organism and its xeno
+    BIOMD0000000172: {organism: Y, xeno: xY}
+    BIOMD0000000217: {organism: E, xeno: xE}
+    BIOMD0000000017: {organism: L, xeno: xL}
+  # Species of different SBML models that are one chemical in the vessel, and how many units of the species of the
+  # model one mM of the chemical is.
+  same_chemical:
+    glucose:
+      BIOMD0000000172: {species: GLCo, per_mM: 1.0}
+      # The model counts glucose in halves: R1 takes one halfglucose to one pyruvate, and its rate law reads the
+      # glucose concentration as halfglucose / 2.
+      BIOMD0000000017: {species: halfglucose, per_mM: 2.0}
+  # How the xenos stand to the other pairs. No xeno ever takes the nutrient of its own partner.
+  #   substrate   own: each xeno has a substrate and a product of its own.  common: all live on X and excrete W
+  #   cross       specificity of the transporter of a xeno for the nutrients of the SBML organisms of the other
+  #               pairs, relative to its own substrate
+  designs:
+    private: {substrate: own, cross: 0.0}
+    shared: {substrate: common, cross: 0.0}
+    partner-only: {substrate: common, cross: 0.01}
+  assembly: 6000.0        # minutes after the pouring before anything is stepped
+  fate: 60000.0           # minutes for which the poured community is followed with no step at all
+  fate_store_every: 400   # ticks between the stored times of that run: one every 100 minutes
+
+# ---- the studies behind the readings (xeno_biomodels.studies) ------------------------------------------------------
+# What the studies vary by factors is written in their modules; what they choose about a world is written here.
+studies:
+  # Where the interference enters. Besides its nutrient, a receiver has another species of the medium that its
+  # model reads. The world of this study lets that species vary too, the receiver protects its level as a quantity
+  # of its own, and the sender takes a share of the one or of the other.
+  channels:
+    other:
+      BIOMD0000000172: {species: EtOH, what: "ethanol, which it makes"}
+      BIOMD0000000217: {species: KG, what: "2-oxoglutarate, which it takes beside ammonium"}
+      BIOMD0000000017: {species: O2, what: "oxygen"}
+    shares: [0.01, 0.1]  # what the sender takes at rest, as a share of what the receiver takes (or makes) alone
+  # Every model of the plateau with a species that it takes up and reads, by rule and not by hand.
+  receivers:
+    uptake_rises_by: 1.0e-3  # with 10 % more of the species its uptake rises by this share or more,
+    state_moves_by: 1.0e-2   # and a species of the model moves by this share or more
+    consumes: 0.9            # the share of the species in the feed that the organism takes, alone at rest. ASSUMED.
+    shares: [0.01, 0.1]
+  # An activity that changes in time: square waves between two activities, and the switching that the step
+  # responses say is worst. The two activities lie as far below the baseline as above it, so that a wave leaves
+  # the mean of the activity where the baseline has it: what a sender takes is in proportion to its activity.
+  schedules:
+    designs: [xeno, leak-1e-2]
+    low: 0.5
+    high: 1.5
+    periods: [8, 30, 120, 600, 2400]  # minutes
+    store_every: 4                     # ticks between stored times: one a minute
